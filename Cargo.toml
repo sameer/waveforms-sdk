@@ -1,0 +1,25 @@
+[package]
+name = "waveforms-sdk"
+version = "0.0.1"
+authors = ["Sameer Puri <sameer@users.noreply.github.com>"]
+edition = "2018"
+keywords = ["oscilloscope", "signal", "sdk", "digilent", "waveforms"]
+repository = "https://github.com/sammer/waveforms-sdk"
+documentation = "https://docs.rs/waveforms-sdk"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "Rust bindings for the Digilent WaveForms SDK"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "sameer/waveforms-sdk" }
+is-it-maintained-open-issues = { repository = "sameer/waveforms-sdk" }
+maintenance = { status = "passively-maintained" }
+
+[dependencies]
+uom = "0.31"
+paste = "1"
+
+[build-dependencies]
+bindgen = "0.58"
