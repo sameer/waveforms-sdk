@@ -1,0 +1,68 @@
+name: g-code
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache WaveForms
+        uses: actions/cache@v2
+        with:
+          path: ~/waveforms/*
+          key: ${{ runner.os }}-waveforms-3.16.3
+      - name: Download WaveForms
+        run: stat ~/waveforms/digilent.waveforms.deb || (curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.web )
+      - name: Install WaveForms
+        run: sudo dpkg -i ~/waveforms/digilent.waveforms.deb && sudo apt-get install -f
+      - name: Build
+        run: cargo build
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Cache WaveForms
+        uses: actions/cache@v2
+        with:
+          path: ~/waveforms/*
+          key: ${{ runner.os }}-waveforms-3.16.3
+      - name: Download WaveForms
+        run: stat ~/waveforms/digilent.waveforms.deb || (curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.web )
+      - name: Install WaveForms
+        run: sudo dpkg -i ~/waveforms/digilent.waveforms.deb
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          profile: minimal
+          components: llvm-tools-preview
+      - uses: actions-rs/install@v0.1
+        with:
+          crate: grcov
+          version: 0.7.1
+          use-tool-cache: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+        env:
+          RUSTFLAGS: '-Zinstrument-coverage'
+          RUSTDOCFLAGS: '-Zinstrument-coverage'
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features --no-fail-fast
+        env:
+          RUSTFLAGS: '-Zinstrument-coverage'
+          RUSTDOCFLAGS: '-Zinstrument-coverage'
+          LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
+      - name: grcov
+        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch -o lcov.info
+      - uses: codecov/codecov-action@v1
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
