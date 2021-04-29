@@ -10,15 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache Adept Runtime
+        uses: actions/cache@v2
+        with:
+          path: ~/adept/*
+          key: ${{ runner.os }}-adept-2.21.3
+      - name: Download Adept Runtime
+        run: stat ~/adept/digilent.adept.deb || (mkdir ~/adept && cd ~/adept && curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Adept2+Runtime/2.21.3/digilent.adept.runtime_2.21.3-amd64.deb' -o digilent.adept.deb )
+      - name: Install Adept Runtime
+        run: sudo dpkg -i ~/adept/digilent.adept.deb
       - name: Cache WaveForms
         uses: actions/cache@v2
         with:
           path: ~/waveforms/*
           key: ${{ runner.os }}-waveforms-3.16.3
       - name: Download WaveForms
-        run: stat ~/waveforms/digilent.waveforms.deb || (curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.web )
+        run: stat ~/waveforms/digilent.waveforms.deb || (mkdir ~/waveforms && cd ~/waveforms && curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.deb )
       - name: Install WaveForms
-        run: sudo dpkg -i ~/waveforms/digilent.waveforms.deb && sudo apt-get install -f
+        run: sudo apt-get install libqt5multimedia5-plugins libqt5scripttools5 libqt5network5 && sudo mkdir /usr/share/desktop-directories/ && sudo dpkg -i ~/waveforms/digilent.waveforms.deb
       - name: Build
         run: cargo build
   coverage:
@@ -27,15 +36,24 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
+      - name: Cache Adept Runtime
+        uses: actions/cache@v2
+        with:
+          path: ~/adept/*
+          key: ${{ runner.os }}-adept-2.21.3
+      - name: Download Adept Runtime
+        run: stat ~/adept/digilent.adept.deb || (mkdir ~/adept && cd ~/adept && curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Adept2+Runtime/2.21.3/digilent.adept.runtime_2.21.3-amd64.deb' -o digilent.adept.deb )
+      - name: Install Adept Runtime
+        run: sudo dpkg -i ~/adept/digilent.adept.deb
       - name: Cache WaveForms
         uses: actions/cache@v2
         with:
           path: ~/waveforms/*
           key: ${{ runner.os }}-waveforms-3.16.3
       - name: Download WaveForms
-        run: stat ~/waveforms/digilent.waveforms.deb || (curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.web )
+        run: stat ~/waveforms/digilent.waveforms.deb || (mkdir ~/waveforms && cd ~/waveforms && curl 'https://digilent.s3-us-west-2.amazonaws.com/Software/Waveforms2015/3.16.3/digilent.waveforms_3.16.3_amd64.deb' -o digilent.waveforms.deb )
       - name: Install WaveForms
-        run: sudo dpkg -i ~/waveforms/digilent.waveforms.deb
+        run: sudo apt-get install libqt5multimedia5-plugins libqt5scripttools5 libqt5network5 && sudo mkdir /usr/share/desktop-directories/ && sudo dpkg -i ~/waveforms/digilent.waveforms.deb
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
