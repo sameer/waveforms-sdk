@@ -1,17 +1,23 @@
 use paste::paste;
 use std::ffi::CStr;
+use std::ops::RangeInclusive;
 use std::os::raw::*;
-use uom::si::{f64::*, frequency::hertz, time::second};
 
-mod enums;
 #[cfg(test)]
 mod tests;
+
+mod analog;
 mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
+mod digital;
 
+#[macro_use]
+mod macros;
+
+use analog::{gen::WaveformGenerator, scope::Oscilloscope};
 use bindings::*;
-use enums::*;
+use digital::{analyzer::LogicAnalyzer, gen::PatternGenerator, protocols::Protocols};
 
 #[derive(Debug)]
 pub struct WaveFormsError {
@@ -86,84 +92,6 @@ impl WaveFormsErrorCode {
     }
 }
 
-macro_rules! get_string {
-    ($func: ident $($arg: expr),*) => {
-        unsafe {
-            let mut buffer = [0i8; 32];
-            let res = $func($($arg,)* &mut buffer);
-            if res != 0 {
-                Ok(CStr::from_ptr(buffer.as_ptr())
-                    .to_str()
-                    .unwrap()
-                    .to_owned()
-                    .to_string())
-            } else {
-                Err(WaveFormsError::get())
-            }
-        }
-    };
-}
-
-macro_rules! get_int {
-    ($func: ident $($arg: expr),*) => {
-        unsafe {
-            let mut val = 0;
-            let res = $func($($arg,)* &mut val);
-            if res != 0 { Ok(val) } else { Err(WaveFormsError::get()) }
-        }
-    };
-}
-
-macro_rules! get_float {
-    ($func: ident $($arg: expr),*) => {
-        unsafe {
-            let mut val = 0.;
-            let res = $func($($arg,)* &mut val);
-            if res != 0 { Ok(val) } else { Err(WaveFormsError::get()) }
-        }
-    };
-}
-
-macro_rules! get_bool {
-    ($func: ident $($arg: expr),*) => {
-        unsafe {
-            let mut val = 0;
-            let res = $func($($arg,)* &mut val);
-            if res != 0 { Ok(val != 0) } else { Err(WaveFormsError::get()) }
-        }
-    };
-}
-
-macro_rules! call {
-    ($func: ident $($arg: expr),*) => {
-        unsafe {
-            let res = $func($($arg,)*);
-            if res != 0 { Ok(()) } else { Err(WaveFormsError::get()) }
-        }
-    };
-}
-
-macro_rules! make_a_struct_and_getters {
-    ($name:ident { $($field:ident : $ty: ty),* }) => {
-        #[derive(Debug, PartialEq)]
-        pub struct $name {
-            $(
-                $field: $ty,
-            )*
-        }
-
-        paste! {
-            impl $name {
-                $(
-                    pub fn [<$field>](&self) -> &$ty {
-                        &self.$field
-                    }
-                )*
-            }
-        }
-    }
-}
-
 /// WaveForms SDK version
 pub fn version() -> String {
     get_string!(FDwfGetVersion).unwrap()
@@ -212,7 +140,7 @@ impl Device {
 }
 
 pub fn enumerate_devices() -> impl Iterator<Item = Device> {
-    let device_count = get_int!(FDwfEnum EnumFilter::All as i32).unwrap();
+    let device_count = get_int!(FDwfEnum EnumerationFilter::All.into()).unwrap();
     (0..device_count).map(|device_index| {
         let mut version = 0;
         let id = get_int!(FDwfEnumDeviceType device_index, &mut version).unwrap();
@@ -224,36 +152,36 @@ pub fn enumerate_devices() -> impl Iterator<Item = Device> {
                 analog: DomainConfig {
                     in_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogInChannelCount).unwrap()
-                            as usize,
+                            as u32,
                     out_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogOutChannelCount)
-                            .unwrap() as usize,
+                            .unwrap() as u32,
                     io_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogIOChannelCount).unwrap()
-                            as usize,
+                            as u32,
                     in_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogInBufferSize).unwrap()
-                            as usize,
+                            as u32,
                     out_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogOutBufferSize).unwrap()
-                            as usize,
+                            as u32,
                 },
                 digital: DomainConfig {
                     in_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalInChannelCount)
-                            .unwrap() as usize,
+                            .unwrap() as u32,
                     out_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalOutChannelCount)
-                            .unwrap() as usize,
+                            .unwrap() as u32,
                     io_channel_count:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalIOChannelCount)
-                            .unwrap() as usize,
+                            .unwrap() as u32,
                     in_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalInBufferSize).unwrap()
-                            as usize,
+                            as u32,
                     out_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalOutBufferSize).unwrap()
-                            as usize,
+                            as u32,
                 },
             })
             .collect::<Vec<_>>();
@@ -269,13 +197,33 @@ pub fn enumerate_devices() -> impl Iterator<Item = Device> {
     })
 }
 
+enum_only! {
+    EnumerationFilter c_int {
+        All => enumfilterAll,
+        EExplorer => enumfilterEExplorer,
+        Discovery => enumfilterDiscovery,
+        Discovery2 => enumfilterDiscovery2,
+        DDiscovery => enumfilterDDiscovery
+    }
+}
+
+enum_only! {
+    DeviceType c_int {
+        ElectronicsExplorer => devidEExplorer,
+        AnalogDiscovery => devidDiscovery,
+        AnalogDiscovery2 => devidDiscovery,
+        DigitalDiscovery => devidDDiscovery,
+        AnalogDiscoveryPro => devidADP3X50
+    }
+}
+
 make_a_struct_and_getters! {
     DomainConfig {
-        in_channel_count: usize,
-        out_channel_count: usize,
-        io_channel_count: usize,
-        in_buffer_size: usize,
-        out_buffer_size: usize
+        in_channel_count: u32,
+        out_channel_count: u32,
+        io_channel_count: u32,
+        in_buffer_size: u32,
+        out_buffer_size: u32
     }
 }
 
@@ -300,21 +248,76 @@ impl DeviceHandle {
         ))
     }
 
+    pub fn get_trigger(&self, pin_index: u32) -> Result<TriggerSource, WaveFormsError> {
+        Ok(TriggerSource::from(
+            get_int!(FDwfDeviceTriggerGet self.handle.unwrap(), pin_index as c_int)?,
+        ))
+    }
+
+    pub fn set_trigger(
+        &mut self,
+        pin_index: u32,
+        src: TriggerSource,
+    ) -> Result<(), WaveFormsError> {
+        call!(FDwfDeviceTriggerSet self.handle.unwrap(), pin_index as c_int, src.into())
+    }
+
+    /// Generates one pulse on the PC trigger line.
+    /// This can be used to trigger multiple instruments synchronously.
+    pub fn trigger_pc(&mut self) -> Result<(), WaveFormsError> {
+        call!(FDwfDeviceTriggerPC self.handle.unwrap())
+    }
+
+    /// Analog in
     pub fn oscilloscope<'handle>(
         &'handle mut self,
     ) -> Result<Oscilloscope<'handle>, WaveFormsError> {
-        call!(FDwfAnalogInReset self.handle.unwrap())?;
         Ok(Oscilloscope {
             device_handle: self.handle.unwrap(),
             phantom: std::marker::PhantomData,
         })
     }
 
-    /// Generates one pulse on the PC trigger line.
-    pub fn trigger_pc(&mut self) -> Result<(), WaveFormsError> {
-        call!(FDwfDeviceTriggerPC self.handle.unwrap())
+    /// Analog out
+    pub fn waveform_generator<'handle>(
+        &'handle mut self,
+    ) -> Result<WaveformGenerator<'handle>, WaveFormsError> {
+        Ok(WaveformGenerator {
+            device_handle: self.handle.unwrap(),
+            phantom: std::marker::PhantomData,
+        })
     }
 
+    /// Digital in
+    pub fn logic_analyzer<'handle>(
+        &'handle mut self,
+    ) -> Result<LogicAnalyzer<'handle>, WaveFormsError> {
+        Ok(LogicAnalyzer {
+            device_handle: self.handle.unwrap(),
+            phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Digital out
+    pub fn pattern_generator<'handle>(
+        &'handle mut self,
+    ) -> Result<PatternGenerator<'handle>, WaveFormsError> {
+        Ok(PatternGenerator {
+            device_handle: self.handle.unwrap(),
+            phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Digital I/O
+    pub fn protocols<'handle>(&'handle mut self) -> Result<Protocols<'handle>, WaveFormsError> {
+        Ok(Protocols {
+            device_handle: self.handle.unwrap(),
+            phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Close the handle when you are done using the device.
+    /// This will be done on your behalf when the handle is dropped.
     pub fn close(mut self) -> Result<(), WaveFormsError> {
         self.close_ref()
     }
@@ -335,133 +338,62 @@ impl Drop for DeviceHandle {
     }
 }
 
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct SupportedTriggerSources {
-    /// From this computer
-    pc: bool,
-
-    /// From the analog in detector
-    detector_analog_in: bool,
-
-    /// From the digital in detector
-    detector_digital_in: bool,
-
-    /// When this is running
-    analog_in: bool,
-
-    /// When this is running
-    digital_in: bool,
-
-    /// When this is running
-    analog_out_1: bool,
-
-    /// When this is running
-    analog_out_2: bool,
-
-    /// When this is running
-    analog_out_3: bool,
-
-    /// When this is running
-    analog_out_4: bool,
-
-    /// From external signal
-    external_1: bool,
-
-    /// From external signal
-    external_2: bool,
-
-    /// From external signal
-    external_3: bool,
-
-    /// From external signal
-    external_4: bool,
-
-    /// Undocumented
-    high: bool,
-
-    /// Undocumented
-    low: bool,
-}
-
-impl From<c_int> for SupportedTriggerSources {
-    fn from(x: c_int) -> Self {
-        dbg!(x);
-        Self {
-            pc: (x & ((1 as c_int) << trigsrcPC)) != 0,
-            detector_analog_in: (x & ((1 as c_int) << trigsrcDetectorAnalogIn)) != 0,
-            detector_digital_in: (x & ((1 as c_int) << trigsrcDetectorDigitalIn)) != 0,
-            analog_in: (x & ((1 as c_int) << trigsrcAnalogIn)) != 0,
-            digital_in: (x & ((1 as c_int) << trigsrcDigitalIn)) != 0,
-            analog_out_1: (x & ((1 as c_int) << trigsrcAnalogOut1)) != 0,
-            analog_out_2: (x & ((1 as c_int) << trigsrcAnalogOut2)) != 0,
-            analog_out_3: (x & ((1 as c_int) << trigsrcAnalogOut3)) != 0,
-            analog_out_4: (x & ((1 as c_int) << trigsrcAnalogOut4)) != 0,
-            external_1: (x & ((1 as c_int) << trigsrcExternal1)) != 0,
-            external_2: (x & ((1 as c_int) << trigsrcExternal2)) != 0,
-            external_3: (x & ((1 as c_int) << trigsrcExternal3)) != 0,
-            external_4: (x & ((1 as c_int) << trigsrcExternal4)) != 0,
-            high: (x & ((1 as c_int) << trigsrcHigh)) != 0,
-            low: (x & ((1 as c_int) << trigsrcLow)) != 0,
-        }
+enum_and_support_bitfield! {
+    TriggerSource c_uchar {
+        None => trigsrcNone,
+        /// From this computer
+        Pc => trigsrcPC,
+        /// From the analog in detector
+        DetectorAnalogIn => trigsrcDetectorAnalogIn,
+        /// From the digital in detector
+        DetectorDigitalIn => trigsrcDetectorDigitalIn,
+        /// When this is running
+        AnalogIn => trigsrcAnalogIn,
+        /// When this is running
+        DigitalIn => trigsrcDigitalIn,
+        /// When this is running
+        AnalogOut1 => trigsrcAnalogOut1,
+        /// When this is running
+        AnalogOut2 => trigsrcAnalogOut2,
+        /// When this is running
+        AnalogOut3 => trigsrcAnalogOut3,
+        /// When this is running
+        AnalogOut4 => trigsrcAnalogOut4,
+        /// From external signal
+        External => trigsrcExternal1,
+        /// From external signal
+        External2 => trigsrcExternal2,
+        /// From external signal
+        External3 => trigsrcExternal3,
+        /// From external signal
+        External4 => trigsrcExternal4,
+        /// Undocumented
+        High => trigsrcHigh,
+        /// Undocumented
+        Low => trigsrcLow
     }
 }
 
-#[derive(Debug)]
-pub struct Oscilloscope<'handle> {
-    device_handle: c_int,
-    phantom: std::marker::PhantomData<&'handle ()>,
+enum_and_support_bitfield! {
+    AcquisitionMode c_int {
+        Single => acqmodeSingle,
+        ScanShift => acqmodeScanShift,
+        ScanScreen => acqmodeScanScreen,
+        Record => acqmodeRecord,
+        Overs => acqmodeOvers,
+        Single1 => acqmodeSingle1
+    }
 }
 
-impl<'handle> Oscilloscope<'handle> {
-    pub fn reset(&self) -> Result<(), WaveFormsError> {
-        call!(FDwfAnalogInReset self.device_handle)
-    }
-
-    /// Sets the Record length in seconds.With length of zero, the record will run indefinitely.
-    pub fn set_record_length(&mut self, time: Time) -> Result<(), WaveFormsError> {
-        call!(FDwfAnalogInFrequencySet self.device_handle, time.get::<second>())
-    }
-
-    /// Gets the current Record length
-    pub fn get_record_length(&self) -> Result<Time, WaveFormsError> {
-        Ok(Time::new::<second>(
-            get_float!(FDwfAnalogInRecordLengthGet self.device_handle)?,
-        ))
-    }
-
-    /// Sets the sample frequency for the instrument.
-    pub fn set_sample_frequency(&mut self, freq: Frequency) -> Result<(), WaveFormsError> {
-        call!(FDwfAnalogInFrequencySet self.device_handle, freq.get::<hertz>())
-    }
-
-    /// Reads the configured sample frequency. The AnalogIn ADC always runs at maximum frequency,
-    /// but the method in which the samples are stored in the buffer can be individually configured
-    /// for each channel with filters.
-    pub fn get_sample_frequency(&self) -> Result<Frequency, WaveFormsError> {
-        Ok(Frequency::new::<hertz>(
-            get_float!(FDwfAnalogInFrequencyGet self.device_handle)?,
-        ))
-    }
-
-    /// Retrieves the maximum (ADC frequency) settable sample frequency.
-    pub fn max_sample_frequency(&self) -> Result<Frequency, WaveFormsError> {
-        let mut min = 0.;
-        let mut max = 0.;
-        call!(FDwfAnalogInFrequencyInfo self.device_handle, &mut min, &mut max)?;
-        Ok(Frequency::new::<hertz>(max))
-    }
-
-    /// Retrieves the minimum (ADC frequency) settable sample frequency.
-    pub fn min_sample_frequency(&self) -> Result<Frequency, WaveFormsError> {
-        let mut min = 0.;
-        let mut max = 0.;
-        call!(FDwfAnalogInFrequencyInfo self.device_handle, &mut min, &mut max)?;
-        Ok(Frequency::new::<hertz>(min))
-    }
-
-    /// Retrieves the number bits used by the AnalogIn ADC.
-    pub fn num_adc_bits(&self) -> Result<usize, WaveFormsError> {
-        Ok(get_int!(FDwfAnalogInBitsInfo self.device_handle)? as usize)
+enum_only! {
+    InstrumentState c_uchar {
+        Ready => DwfStateReady,
+        Armed => DwfStateArmed,
+        Done => DwfStateDone,
+        TriggeredOrRunning => DwfStateTriggered,
+        Config => DwfStateConfig,
+        Prefill => DwfStatePrefill,
+        Wait => DwfStateWait
+        // TODO: triggered and running are both 3
     }
 }
