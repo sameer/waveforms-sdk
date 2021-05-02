@@ -113,7 +113,6 @@ impl<'handle> PatternGenerator<'handle> {
     }
 
     /// A data array of samples for playback.
-    /// Bitrate can be 1, 2, 4, 8 or 16.
     ///
     /// The sample count is equal to `data.len() * 8 / bitrate`.
     /// If the bitrate is 16, sample count should be even.
