@@ -5,3 +5,5 @@ pub struct Protocols<'handle> {
     pub(crate) device_handle: c_int,
     pub(crate) phantom: std::marker::PhantomData<&'handle ()>,
 }
+
+impl<'handle> Protocols<'handle> {}

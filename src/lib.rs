@@ -6,20 +6,23 @@ use std::os::raw::*;
 #[cfg(test)]
 mod tests;
 
-mod analog;
+#[macro_use]
+mod macros;
+
+/// Analog input, output, and I/O
+pub mod analog;
 mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
-mod digital;
-
-#[macro_use]
-mod macros;
+/// Digital input, output, and protocols
+pub mod digital;
 
 use analog::{gen::WaveformGenerator, scope::Oscilloscope};
 use bindings::*;
 use digital::{analyzer::LogicAnalyzer, gen::PatternGenerator, protocols::Protocols};
 
 #[derive(Debug)]
+/// Any error returned by the wrapped WaveForms SDK. Includes a descriptive reason.
 pub struct WaveFormsError {
     error_code: WaveFormsErrorCode,
     reason: String,
@@ -47,9 +50,16 @@ pub enum WaveFormsErrorCode {
     /// SDK call does not make sense for or is not supported by this device
     NotSupported,
     /// N-th parameter in an SDK call is invalid
-    InvalidParameter(usize),
+    ///
+    /// The Rust bindings are most likely to blame for this
+    InvalidParameter(u8),
     /// Rust SDK bindings are not aware of this error code
     Other,
+    /// WaveForms SDK returned an unknown enum variant.
+    /// 
+    /// This can happen if the Rust SDK bindings are not up to date with the latest
+    /// version of WaveForms SDK.
+    UnknownVariant,
 }
 
 impl WaveFormsError {
@@ -92,11 +102,14 @@ impl WaveFormsErrorCode {
     }
 }
 
-/// WaveForms SDK version
+/// WaveForms SDK version (i.e. `3.16.3`)
+///
+/// See [download page](https://reference.digilentinc.com/reference/software/waveforms/waveforms-3/start) for the latest version.
 pub fn version() -> String {
     get_string!(FDwfGetVersion).unwrap()
 }
 
+/// Discovered with [iter_devices]
 #[derive(Debug)]
 pub struct Device {
     index: c_int,
@@ -123,6 +136,7 @@ impl Device {
         })
     }
 
+    /// Acquires an exclusive lock on the device
     pub fn open(&self) -> Result<DeviceHandle, WaveFormsError> {
         // TODO: libdwf doesn't actually return the correct error
         // for this, overriding their logic here.
@@ -139,8 +153,10 @@ impl Device {
     }
 }
 
-pub fn enumerate_devices() -> impl Iterator<Item = Device> {
-    let device_count = get_int!(FDwfEnum EnumerationFilter::All.into()).unwrap();
+/// Detect and iterate over found [Device]s
+pub fn iter_devices() -> impl Iterator<Item = Device> {
+    use core::convert::TryFrom;
+    let device_count = get_int!(FDwfEnum DetectFilter::All.into()).unwrap();
     (0..device_count).map(|device_index| {
         let mut version = 0;
         let id = get_int!(FDwfEnumDeviceType device_index, &mut version).unwrap();
@@ -150,36 +166,35 @@ pub fn enumerate_devices() -> impl Iterator<Item = Device> {
             .map(|config_index| Config {
                 index: config_index,
                 analog: DomainConfig {
-                    in_channel_count:
+                    input_channels:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogInChannelCount).unwrap()
                             as u32,
-                    out_channel_count:
+                    output_channels:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogOutChannelCount)
                             .unwrap() as u32,
-                    io_channel_count:
-                        get_int!(FDwfEnumConfigInfo config_index, DECIAnalogIOChannelCount).unwrap()
-                            as u32,
-                    in_buffer_size:
+                    io_channels: get_int!(FDwfEnumConfigInfo config_index, DECIAnalogIOChannelCount)
+                        .unwrap() as u32,
+                    input_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogInBufferSize).unwrap()
                             as u32,
-                    out_buffer_size:
+                    output_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIAnalogOutBufferSize).unwrap()
                             as u32,
                 },
                 digital: DomainConfig {
-                    in_channel_count:
+                    input_channels:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalInChannelCount)
                             .unwrap() as u32,
-                    out_channel_count:
+                    output_channels:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalOutChannelCount)
                             .unwrap() as u32,
-                    io_channel_count:
+                    io_channels:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalIOChannelCount)
                             .unwrap() as u32,
-                    in_buffer_size:
+                    input_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalInBufferSize).unwrap()
                             as u32,
-                    out_buffer_size:
+                    output_buffer_size:
                         get_int!(FDwfEnumConfigInfo config_index, DECIDigitalOutBufferSize).unwrap()
                             as u32,
                 },
@@ -188,7 +203,7 @@ pub fn enumerate_devices() -> impl Iterator<Item = Device> {
 
         Device {
             index: device_index,
-            ty: id.into(),
+            ty: DeviceType::try_from(id).unwrap(),
             username: get_string!(FDwfEnumUserName device_index).unwrap(),
             name: get_string!(FDwfEnumDeviceName device_index).unwrap(),
             serial_number: get_string!(FDwfEnumSN device_index).unwrap(),
@@ -198,12 +213,13 @@ pub fn enumerate_devices() -> impl Iterator<Item = Device> {
 }
 
 enum_only! {
-    EnumerationFilter c_int {
+    /// Filter for [iter_devices] to look for a specific [DeviceType]
+    DetectFilter c_int {
         All => enumfilterAll,
-        EExplorer => enumfilterEExplorer,
-        Discovery => enumfilterDiscovery,
-        Discovery2 => enumfilterDiscovery2,
-        DDiscovery => enumfilterDDiscovery
+        ElectronicsExplorer => enumfilterEExplorer,
+        AnalogDiscovery => enumfilterDiscovery,
+        AnalogDiscovery2 => enumfilterDiscovery2,
+        DigitalDiscovery => enumfilterDDiscovery
     }
 }
 
@@ -211,23 +227,25 @@ enum_only! {
     DeviceType c_int {
         ElectronicsExplorer => devidEExplorer,
         AnalogDiscovery => devidDiscovery,
-        AnalogDiscovery2 => devidDiscovery,
+        AnalogDiscovery2 => devidDiscovery2,
         DigitalDiscovery => devidDDiscovery,
         AnalogDiscoveryPro => devidADP3X50
     }
 }
 
-make_a_struct_and_getters! {
+make_struct! {
+    /// Device configuration for a particular domain (analog/digital)
     DomainConfig {
-        in_channel_count: u32,
-        out_channel_count: u32,
-        io_channel_count: u32,
-        in_buffer_size: u32,
-        out_buffer_size: u32
+        input_channels: u32,
+        output_channels: u32,
+        io_channels: u32,
+        input_buffer_size: u32,
+        output_buffer_size: u32
     }
 }
 
-make_a_struct_and_getters! {
+make_struct! {
+    /// Device configuration for all domains
     Config {
         index: c_int,
         analog: DomainConfig,
@@ -236,22 +254,22 @@ make_a_struct_and_getters! {
 }
 
 #[derive(Debug)]
+/// Exclusive lock on a device
 pub struct DeviceHandle {
     handle: Option<c_int>,
 }
 
 impl DeviceHandle {
     /// Returns the supported trigger source options for the global trigger bus.
-    pub fn supported_trigger_sources(&self) -> Result<SupportedTriggerSources, WaveFormsError> {
+    pub fn trigger_sources(&self) -> Result<SupportedTriggerSources, WaveFormsError> {
         Ok(SupportedTriggerSources::from(
             get_int!(FDwfDeviceTriggerInfo self.handle.unwrap())?,
         ))
     }
 
     pub fn get_trigger(&self, pin_index: u32) -> Result<TriggerSource, WaveFormsError> {
-        Ok(TriggerSource::from(
-            get_int!(FDwfDeviceTriggerGet self.handle.unwrap(), pin_index as c_int)?,
-        ))
+        use core::convert::TryFrom;
+        get_int!(FDwfDeviceTriggerGet self.handle.unwrap(), pin_index as c_int).and_then(TriggerSource::try_from)
     }
 
     pub fn set_trigger(
@@ -262,7 +280,8 @@ impl DeviceHandle {
         call!(FDwfDeviceTriggerSet self.handle.unwrap(), pin_index as c_int, src.into())
     }
 
-    /// Generates one pulse on the PC trigger line.
+    /// Generate one pulse on the PC trigger line.
+    ///
     /// This can be used to trigger multiple instruments synchronously.
     pub fn trigger_pc(&mut self) -> Result<(), WaveFormsError> {
         call!(FDwfDeviceTriggerPC self.handle.unwrap())
@@ -317,6 +336,7 @@ impl DeviceHandle {
     }
 
     /// Close the handle when you are done using the device.
+    ///
     /// This will be done on your behalf when the handle is dropped.
     pub fn close(mut self) -> Result<(), WaveFormsError> {
         self.close_ref()
@@ -339,6 +359,7 @@ impl Drop for DeviceHandle {
 }
 
 enum_and_support_bitfield! {
+    /// Sources for the on-device global trigger bus.
     TriggerSource c_uchar {
         None => trigsrcNone,
         /// From this computer
@@ -375,25 +396,79 @@ enum_and_support_bitfield! {
 }
 
 enum_and_support_bitfield! {
+    /// Ways an [Oscilloscope] or [LogicAnalyzer] can acquire samples
     AcquisitionMode c_int {
+        /// Perform a single buffer acquisition and rearm the instrument.
+        ///
+        /// The next capture will occur after data is fetched from the device.
+        /// See [Oscilloscope::fetch] and [LogicAnalyzer::fetch]
+        ///
+        /// This is the default setting.
         Single => acqmodeSingle,
+        /// Perform a continuous acquisition in FIFO style.
+        ///
+        /// The trigger setting is ignored. The last sample is at the end of buffer.
         ScanShift => acqmodeScanShift,
+        /// Perform continuous acquisition circularly writing samples into the buffer.
+        ///
+        /// The trigger setting is ignored. The IndexWrite shows the buffer write position. This is similar to a heart monitor display.
         ScanScreen => acqmodeScanScreen,
+        /// Perform acquisition for defined record length. See [Oscilloscope::set_record_length] and [LogicAnalyzer::set_record_length]
         Record => acqmodeRecord,
         Overs => acqmodeOvers,
-        Single1 => acqmodeSingle1
+        /// Perform a single buffer acquisition without rearming the instrument.
+        SingleWithoutRearm => acqmodeSingle1
     }
 }
 
 enum_only! {
+    /// Possible states for all instruments.Each has a different state lifecycle.
+    ///
+    /// # State Diagrams
+    ///
+    /// Components in rectangles are transitions whose destination depends on instrument configuration.
+    ///
+    /// Click on the diagram to go to the instrument documentation.
+    /// ## Oscilloscope
+    /// [![](https://reference.digilentinc.com/_media/waveforms/analog1.png?w=600&tok=e81729)](Oscilloscope)
+    ///
+    /// ## Waveform Generator
+    /// [![](https://reference.digilentinc.com/_media/waveforms/6p1.png?w=600&tok=012218)](WaveformGenerator)
+    ///
+    /// ## Logic Analyzer
+    /// [![](https://reference.digilentinc.com/_media/waveforms/9p1.png?w=600&tok=aca9e9)](LogicAnalyzer)
+    ///
+    /// ## Pattern Generator
+    /// [![](https://reference.digilentinc.com/_media/waveforms/10p1.png?w=600&tok=55b446)](PatternGenerator)
     InstrumentState c_uchar {
+        /// Initial state.
         Ready => DwfStateReady,
+        /// Instrument is waiting to be triggered.
         Armed => DwfStateArmed,
+        /// Final state after the instrument has finished running.
         Done => DwfStateDone,
-        TriggeredOrRunning => DwfStateTriggered,
+        /// Instrument has been triggered and is running.
+        ///
+        /// For [WaveformGenerator] and [PatternGenerator],
+        /// a repeat count can be set so that the instrument will
+        /// run repeatedly. See [WaveformGenerator::get_repeat] or [PatternGenerator::get_repeat].
+        /// These instruments will enter [InstrumentState::Armed] or [InstrumentState::Wait]
+        /// depending on whether the trigger is treated as part of the repeat cycle.
+        /// See [WaveformGenerator::get_repeat_includes_trigger] or [PatternGenerator::get_repeat_includes_trigger]
+        Running => DwfStateRunning,
+        /// Instrument is being configured.
+        /// Only relevant to [Oscilloscope] and [LogicAnalyzer].
+        ///
+        /// The instrument can then transition back to [InstruemntState::Ready]
+        /// or directly enter [InstrumentState::Prefill].
         Config => DwfStateConfig,
+        /// Prefill buffer with samples needed before a trigger can occur.
+        /// Only relevant to [Oscilloscope] and [LogicAnalyzer].
         Prefill => DwfStatePrefill,
+        /// Instrument is waiting for the specified time.
+        /// Only relevant to [WaveformGenerator] and [PatternGenerator].
+        ///
+        /// See [WaveformGenerator::get_wait] or [PatternGenerator::get_wait].
         Wait => DwfStateWait
-        // TODO: triggered and running are both 3
     }
 }

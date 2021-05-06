@@ -23,9 +23,8 @@ impl<'handle> LogicAnalyzer<'handle> {
     }
 
     pub fn state(&self) -> Result<InstrumentState, WaveFormsError> {
-        Ok(InstrumentState::from(
-            get_int!(FDwfDigitalInStatus self.device_handle, 0)?,
-        ))
+        use core::convert::TryFrom;
+        get_int!(FDwfDigitalInStatus self.device_handle, 0).and_then(InstrumentState::try_from)
     }
 
     /// On-device clock source frequency
@@ -34,23 +33,15 @@ impl<'handle> LogicAnalyzer<'handle> {
             .map(|x| Frequency::new::<hertz>(x))
     }
 
-    pub fn set_clock_source(&mut self, src: ClockSource) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalInClockSourceSet self.device_handle, src.into())
+    enum_getter_and_setter! {
+        clock_source ClockSource FDwfDigitalInClockSource device_handle
     }
 
-    pub fn get_clock_source(&mut self) -> Result<ClockSource, WaveFormsError> {
-        get_int!(FDwfDigitalInClockSourceGet self.device_handle).map(ClockSource::from)
+    int_getter_and_setter! {
+        clock_divider u32 FDwfDigitalInDivider device_handle
     }
 
-    pub fn set_clock_divider(&mut self, divider: c_uint) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalInDividerSet self.device_handle, divider)
-    }
-
-    pub fn get_clock_divider(&mut self) -> Result<c_uint, WaveFormsError> {
-        get_int!(FDwfDigitalInDividerGet self.device_handle)
-    }
-
-    pub fn max_clock_divider(&self) -> Result<c_uint, WaveFormsError> {
+    pub fn max_clock_divider(&self) -> Result<u32, WaveFormsError> {
         Ok(get_int!(FDwfDigitalInDividerInfo self.device_handle)?)
     }
 
@@ -75,36 +66,21 @@ impl<'handle> LogicAnalyzer<'handle> {
             .map(|x| usize::try_from(x).unwrap_or(usize::MAX))
     }
 
-    pub fn set_sample_mode(&mut self, mode: SampleMode) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalInSampleModeSet self.device_handle, mode.into())
+    enum_getter_and_setter! {
+        sample_mode SampleMode FDwfDigitalInSampleMode device_handle
     }
 
-    pub fn get_sample_mode(&mut self) -> Result<SampleMode, WaveFormsError> {
-        Ok(SampleMode::from(
-            get_int!(FDwfDigitalInSampleModeGet self.device_handle)?,
-        ))
+    pub fn sample_modes(&self) -> Result<SupportedSampleModes, WaveFormsError> {
+        get_int!(FDwfDigitalInSampleModeInfo self.device_handle).map(SupportedSampleModes::from)
     }
 
-    pub fn supported_sample_modes(&self) -> Result<SupportedSampleModes, WaveFormsError> {
-        Ok(SupportedSampleModes::from(
-            get_int!(FDwfDigitalInSampleModeInfo self.device_handle)?,
-        ))
+    enum_getter_and_setter! {
+        acquisition_mode AcquisitionMode FDwfDigitalInAcquisitionMode device_handle
     }
 
-    pub fn set_acquisition_mode(&mut self, mode: AcquisitionMode) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalInAcquisitionModeSet self.device_handle, mode.into())
-    }
-
-    pub fn get_acquisition_mode(&mut self) -> Result<AcquisitionMode, WaveFormsError> {
-        Ok(AcquisitionMode::from(
-            get_int!(FDwfDigitalInAcquisitionModeGet self.device_handle)?,
-        ))
-    }
-
-    pub fn supported_acquisition_modes(&self) -> Result<SupportedAcquisitionModes, WaveFormsError> {
-        Ok(SupportedAcquisitionModes::from(
-            get_int!(FDwfDigitalInAcquisitionModeInfo self.device_handle)?,
-        ))
+    pub fn acquisition_modes(&self) -> Result<SupportedAcquisitionModes, WaveFormsError> {
+        get_int!(FDwfDigitalInAcquisitionModeInfo self.device_handle)
+            .map(SupportedAcquisitionModes::from)
     }
 }
 

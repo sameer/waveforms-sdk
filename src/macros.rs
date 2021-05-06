@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! get_string {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -17,7 +16,6 @@ macro_rules! get_string {
     };
 }
 
-#[macro_export]
 macro_rules! get_int {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -28,7 +26,6 @@ macro_rules! get_int {
     };
 }
 
-#[macro_export]
 macro_rules! get_float {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -39,7 +36,6 @@ macro_rules! get_float {
     };
 }
 
-#[macro_export]
 macro_rules! get_bool {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -50,7 +46,6 @@ macro_rules! get_bool {
     };
 }
 
-#[macro_export]
 macro_rules! set_true {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -59,7 +54,6 @@ macro_rules! set_true {
     };
 }
 
-#[macro_export]
 macro_rules! set_false {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -68,7 +62,6 @@ macro_rules! set_false {
     };
 }
 
-#[macro_export]
 macro_rules! call {
     ($func: ident $($arg: expr),*) => {
         unsafe {
@@ -78,31 +71,20 @@ macro_rules! call {
     };
 }
 
-#[macro_export]
-macro_rules! make_a_struct_and_getters {
-    ($name:ident { $($field:ident : $ty: ty),* }) => {
+macro_rules! make_struct {
+    ($(#[$struct_meta:meta])* $name:ident { $($field:ident : $ty: ty),* }) => {
         #[derive(Debug, PartialEq)]
+        $(#[$struct_meta])*
         pub struct $name {
             $(
-                $field: $ty,
+                pub $field: $ty,
             )*
-        }
-
-        paste! {
-            impl $name {
-                $(
-                    pub fn [<$field>](&self) -> &$ty {
-                        &self.$field
-                    }
-                )*
-            }
         }
     }
 }
 
-#[macro_export]
 macro_rules! enum_only {
-    ($name: ident $ty: ident {
+    ($(#[$enum_meta:meta])* $name: ident $ty: ident {
         $(
             $(#[$field_meta:meta])*
             $field: ident => $value: expr
@@ -110,20 +92,24 @@ macro_rules! enum_only {
     }) => {
         paste! {
             #[derive(Debug, PartialEq, Clone, Copy)]
+            $(#[$enum_meta])*
             #[non_exhaustive]
             pub enum $name {
                 $(
                     $(#[$field_meta])*
                     $field,
                 )*
-                Other,
             }
 
-            impl From<$ty> for $name {
-                fn from(x: $ty) -> Self {
+            impl core::convert::TryFrom<$ty> for $name {
+                type Error = WaveFormsError;
+                fn try_from(x: $ty) -> Result<Self, WaveFormsError> {
                     match x {
-                        $($value => Self::$field,)*
-                        _ => Self::Other
+                        $($value => Ok(Self::$field),)*
+                        other => Err(crate::WaveFormsError {
+                            reason: format!("WaveForms SDK returned `{}` which is not a known variant of {}", other, stringify!($name)),
+                            error_code: crate::WaveFormsErrorCode::UnknownVariant
+                        })
                     }
                  }
             }
@@ -132,7 +118,6 @@ macro_rules! enum_only {
                 fn into(self) -> $ty {
                     match self {
                         $(Self::$field => $value,)*
-                        Self::Other => 0,
                     }
                 }
             }
@@ -140,9 +125,8 @@ macro_rules! enum_only {
     };
 }
 
-#[macro_export]
 macro_rules! enum_and_support_bitfield {
-    ($name: ident $ty: ident {
+    ($(#[$enum_meta:meta])* $name: ident $ty: ident {
         $(
             $(#[$field_meta:meta])*
             $field: ident => $value: ident
@@ -184,19 +168,23 @@ macro_rules! enum_and_support_bitfield {
 
             #[non_exhaustive]
             #[derive(Debug, PartialEq, Clone, Copy)]
+            $(#[$enum_meta])*
             pub enum $name {
                 $(
                     $(#[$field_meta])*
                     $field,
                 )*
-                Other,
             }
 
-            impl From<$ty> for $name {
-                fn from(x: $ty) -> Self {
+            impl std::convert::TryFrom<$ty> for $name {
+                type Error = WaveFormsError;
+                fn try_from(x: $ty) -> Result<Self, WaveFormsError> {
                     match x {
-                        $($value => Self::$field,)*
-                        _ => Self::Other
+                        $($value => Ok(Self::$field),)*
+                        other => Err(crate::WaveFormsError {
+                            reason: format!("WaveForms SDK returned `{}` which is not a known variant of {}", other, stringify!($name)),
+                            error_code: crate::WaveFormsErrorCode::UnknownVariant
+                        })
                     }
                  }
             }
@@ -205,9 +193,51 @@ macro_rules! enum_and_support_bitfield {
                 fn into(self) -> $ty {
                     match self {
                         $(Self::$field => $value,)*
-                        Self::Other => 0,
                     }
                 }
+            }
+        }
+    };
+}
+
+macro_rules! enum_getter_and_setter {
+    ($(#[$field_meta:meta])* $name: ident $ty: ident $base: ident $($arg: expr),*) => {
+        paste! {
+            pub fn [<get_ $name:snake:lower>](&self) -> Result<$ty, WaveFormsError> {
+                use core::convert::TryFrom;
+                get_int!([<$base Get>] $(self.$arg),*).and_then($ty::try_from)
+            }
+            $(#[$field_meta])*
+            pub fn [<set_ $name:snake:lower>] (&mut self, x: $ty) -> Result<(), WaveFormsError> {
+                call!([<$base Set>] $(self.$arg,)* x.into())
+            }
+        }
+    };
+}
+
+macro_rules! uom_getter_and_setter {
+    ($(#[$field_meta:meta])* $name: ident $ty: ident< $unit: ident> $base: ident $($arg: expr),*) => {
+        paste! {
+            pub fn [<get_ $name:snake:lower>](&self) -> Result<$ty, WaveFormsError> {
+                get_float!([<$base Get>] $(self.$arg),*).map(|x| $ty::new::<$unit>(x))
+            }
+            $(#[$field_meta])*
+            pub fn [<set_ $name:snake:lower>] (&mut self, x: $ty) -> Result<(), WaveFormsError> {
+                call!([<$base Set>] $(self.$arg,)* x.get::<$unit>())
+            }
+        }
+    };
+}
+
+macro_rules! int_getter_and_setter {
+    ($(#[$field_meta:meta])* $name: ident $ty: ident $base: ident $($arg: expr),*) => {
+        paste! {
+            pub fn [<get_ $name:snake:lower>](&self) -> Result<$ty, WaveFormsError> {
+                get_int!([<$base Get>] $(self.$arg),*)
+            }
+            $(#[$field_meta])*
+            pub fn [<set_ $name:snake:lower>] (&mut self, x: $ty) -> Result<(), WaveFormsError> {
+                call!([<$base Set>] $(self.$arg,)* x)
             }
         }
     };

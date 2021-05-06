@@ -18,8 +18,13 @@ is-it-maintained-open-issues = { repository = "sameer/waveforms-sdk" }
 maintenance = { status = "passively-maintained" }
 
 [dependencies]
-uom = "0.31"
+uom = { version = "0.31", features = ["f64"] }
 paste = "1"
 
 [build-dependencies]
 bindgen = "0.58"
+
+[features]
+# Run device integration tests which can only be done locally.
+# Make sure you have nothing attached to your device.
+local_tests = []

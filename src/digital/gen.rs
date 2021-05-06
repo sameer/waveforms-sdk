@@ -25,68 +25,55 @@ impl<'handle> PatternGenerator<'handle> {
     }
 
     pub fn state(&self) -> Result<InstrumentState, WaveFormsError> {
-        Ok(InstrumentState::from(
-            get_int!(FDwfDigitalOutStatus self.device_handle)?,
-        ))
+        use core::convert::TryFrom;
+        get_int!(FDwfDigitalOutStatus self.device_handle).and_then(InstrumentState::try_from)
     }
 
-    pub fn supported_run_time_max(&self) -> Result<Time, WaveFormsError> {
+    pub fn run_time_max(&self) -> Result<Time, WaveFormsError> {
         let mut min = 0.;
         let mut max = 0.;
         call!(FDwfDigitalOutRunInfo self.device_handle, &mut min, &mut max)?;
         Ok(Time::new::<second>(max))
     }
 
-    pub fn supported_run_time_min(&self) -> Result<Time, WaveFormsError> {
+    pub fn run_time_min(&self) -> Result<Time, WaveFormsError> {
         let mut min = 0.;
         let mut max = 0.;
         call!(FDwfDigitalOutRunInfo self.device_handle, &mut min, &mut max)?;
         Ok(Time::new::<second>(min))
     }
 
-    pub fn set_run_time(&mut self, time: Time) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutRunSet self.device_handle, time.get::<second>())
+    uom_getter_and_setter! {
+        run_time Time<second> FDwfDigitalOutRun device_handle
     }
 
-    pub fn get_run_time(&self) -> Result<Time, WaveFormsError> {
-        get_float!(FDwfDigitalOutRunGet self.device_handle).map(|x| Time::new::<second>(x))
-    }
-
-    pub fn supported_wait_time_max(&self) -> Result<Time, WaveFormsError> {
+    pub fn wait_time_max(&self) -> Result<Time, WaveFormsError> {
         let mut min = 0.;
         let mut max = 0.;
         call!(FDwfDigitalOutWaitInfo self.device_handle, &mut min, &mut max)?;
         Ok(Time::new::<second>(max))
     }
 
-    pub fn supported_wait_time_min(&self) -> Result<Time, WaveFormsError> {
+    pub fn wait_time_min(&self) -> Result<Time, WaveFormsError> {
         let mut min = 0.;
         let mut max = 0.;
         call!(FDwfDigitalOutWaitInfo self.device_handle, &mut min, &mut max)?;
         Ok(Time::new::<second>(min))
     }
 
-    pub fn set_wait_time(&mut self, time: Time) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutWaitSet self.device_handle, time.get::<second>())
+    uom_getter_and_setter! {
+        wait_time Time<second> FDwfDigitalOutWait device_handle
     }
 
-    pub fn get_wait_time(&self) -> Result<Time, WaveFormsError> {
-        get_float!(FDwfDigitalOutWaitGet self.device_handle).map(|x| Time::new::<second>(x))
-    }
-
-    pub fn supported_repeat_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
+    pub fn repeat_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
         let mut min = 0;
         let mut max = 0;
         call!(FDwfDigitalOutRepeatInfo self.device_handle, &mut min, &mut max)?;
         Ok(min..=max)
     }
 
-    pub fn set_repeat(&mut self, size: u32) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutRepeatSet self.device_handle, size)
-    }
-
-    pub fn get_repeat(&self) -> Result<u32, WaveFormsError> {
-        Ok(get_int!(FDwfDigitalOutRepeatGet self.device_handle)?)
+    int_getter_and_setter! {
+        repeat u32 FDwfDigitalOutRepeat device_handle
     }
 
     /// On-device clock source frequency
@@ -151,72 +138,46 @@ impl<'handle> Channel<'handle> {
         set_false!(FDwfDigitalOutEnableSet self.device_handle, self.index)
     }
 
-    pub fn set_mode(&mut self, mode: Mode) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutOutputSet self.device_handle, self.index, mode.into())
+    enum_getter_and_setter! {
+        mode Mode FDwfDigitalOutOutput device_handle, index
     }
 
-    pub fn get_mode(&self) -> Result<Mode, WaveFormsError> {
-        Ok(Mode::from(
-            get_int!(FDwfDigitalOutOutputGet self.device_handle, self.index)?,
-        ))
-    }
-
-    pub fn supported_modes(&self) -> Result<SupportedModes, WaveFormsError> {
+    pub fn modes(&self) -> Result<SupportedModes, WaveFormsError> {
         get_int!(FDwfDigitalOutOutputInfo self.device_handle, self.index).map(SupportedModes::from)
     }
 
-    pub fn set_type(&mut self, ty: Type) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutTypeSet self.device_handle, self.index, ty.into())
+    enum_getter_and_setter! {
+        type Type FDwfDigitalOutType device_handle, index
     }
 
-    pub fn get_type(&self) -> Result<Type, WaveFormsError> {
-        Ok(Type::from(
-            get_int!(FDwfDigitalOutTypeGet self.device_handle, self.index)?,
-        ))
-    }
-
-    pub fn supported_types(&self) -> Result<SupportedTypes, WaveFormsError> {
+    pub fn types(&self) -> Result<SupportedTypes, WaveFormsError> {
         get_int!(FDwfDigitalOutTypeInfo self.device_handle, self.index).map(SupportedTypes::from)
     }
 
-    pub fn set_idle(&mut self, idle: Idle) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutIdleSet self.device_handle, self.index, idle.into())
+    enum_getter_and_setter! {
+        idle Idle FDwfDigitalOutIdle device_handle, index
     }
 
-    pub fn get_idle(&self) -> Result<Idle, WaveFormsError> {
-        Ok(Idle::from(
-            get_int!(FDwfDigitalOutIdleGet self.device_handle, self.index)?,
-        ))
-    }
-
-    pub fn supported_idles(&self) -> Result<SupportedIdles, WaveFormsError> {
+    pub fn idles(&self) -> Result<SupportedIdles, WaveFormsError> {
         get_int!(FDwfDigitalOutIdleInfo self.device_handle, self.index).map(SupportedIdles::from)
     }
 
-    pub fn supported_divider_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
+    pub fn divider_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
         let mut min = 0;
         let mut max = 0;
         call!(FDwfDigitalOutDividerInfo self.device_handle, self.index, &mut min, &mut max)?;
         Ok(min..=max)
     }
 
-    pub fn set_initial_divider(&mut self, div: u32) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutDividerInitSet self.device_handle, self.index, div)
+    int_getter_and_setter! {
+        initial_divider u32 FDwfDigitalOutDividerInit device_handle, index
     }
 
-    pub fn get_initial_divider(&self) -> Result<u32, WaveFormsError> {
-        get_int!(FDwfDigitalOutDividerInitGet self.device_handle, self.index)
+    int_getter_and_setter! {
+        divider u32 FDwfDigitalOutDivider device_handle, index
     }
 
-    pub fn set_divider(&mut self, div: u32) -> Result<(), WaveFormsError> {
-        call!(FDwfDigitalOutDividerSet self.device_handle, self.index, div)
-    }
-
-    pub fn get_divider(&self) -> Result<u32, WaveFormsError> {
-        Ok(get_int!(FDwfDigitalOutDividerGet self.device_handle, self.index)?)
-    }
-
-    pub fn supported_counter_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
+    pub fn counter_range(&self) -> Result<RangeInclusive<u32>, WaveFormsError> {
         let mut min = 0;
         let mut max = 0;
         call!(FDwfDigitalOutCounterInfo self.device_handle, self.index, &mut min, &mut max)?;
