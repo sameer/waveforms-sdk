@@ -1,4 +1,4 @@
-name: g-code
+name: waveforms-sdk
 
 on: [push, pull_request]
 
